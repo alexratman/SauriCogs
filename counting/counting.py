@@ -2,13 +2,13 @@ import asyncio
 import discord
 import typing
 import datetime
-
-from discord.utils import get, find
-
+import re
+from discord.utils import find
+from discord.ext import commands
 from redbot.core import Config, checks, commands
-
 from redbot.core.bot import Red
 
+decimal_system = re.compile('^[0-9]+$')
 
 class Counting(commands.Cog):
     """
@@ -92,8 +92,7 @@ class Counting(commands.Cog):
         if await self.config.guild(ctx.guild).topic():
             await self._set_topic(number, goal, next_number, channel)
         await channel.send(number)
-        if c_id != ctx.channel.id:
-            await ctx.send(f"Counting start set to {number}.")
+        await ctx.send(f"Counting start set to {number}.")
 
     @countset.command(name="reset")
     async def countset_reset(self, ctx: commands.Context, confirmation: bool = False):
@@ -117,8 +116,6 @@ class Counting(commands.Cog):
         goal = await self.config.guild(ctx.guild).goal()
         if await self.config.guild(ctx.guild).topic():
             await self._set_topic(0, goal, 1, c)
-        if c_id != ctx.channel.id:
-            await ctx.send("Counting has been reset.")
 
     @countset.command(name="role")
     async def countset_role(
@@ -127,7 +124,7 @@ class Counting(commands.Cog):
         """Add a whitelisted role."""
         if not role:
             await self.config.guild(ctx.guild).whitelist.clear()
-            await ctx.send(f"Whitelisted role has been deleted.")
+            await ctx.send('Whitelisted role has been deleted.')
         else:
             await self.config.guild(ctx.guild).whitelist.set(role.id)
             await ctx.send(f"{role.name} has been whitelisted.")
@@ -215,14 +212,15 @@ class Counting(commands.Cog):
         seconds = await self.config.guild(message.guild).seconds()
         if message.author.id != last_id:
             try:
-                now = int(message.content)
-                if now - 1 == previous:
-                    await self.config.guild(message.guild).previous.set(now)
-                    await self.config.guild(message.guild).last.set(message.author.id)
-                    n = now + 1
-                    if await self.config.guild(message.guild).topic():
-                        return await self._set_topic(now, goal, n, message.channel)
-                    return
+                if re.search('^[0-9]+$', message.content):
+                    now = int(message.content)
+                    if now - 1 == previous:
+                        await self.config.guild(message.guild).previous.set(now)
+                        await self.config.guild(message.guild).last.set(message.author.id)
+                        n = now + 1
+                        if await self.config.guild(message.guild).topic():
+                            return await self._set_topic(now, goal, n, message.channel)
+                        return
             except (TypeError, ValueError):
                 pass
         rid = await self.config.guild(message.guild).whitelist()
@@ -236,9 +234,7 @@ class Counting(commands.Cog):
                     f"The next message in this channel must be {next_number}"
                 )
             else:
-                warn_msg = await message.channel.send(
-                    f"You cannot count twice in a row."
-                )
+                warn_msg = await message.channel.send('You cannot count twice in a row.')
             if seconds != 0:
                 await asyncio.sleep(seconds)
                 await warn_msg.delete()
@@ -278,6 +274,6 @@ class Counting(commands.Cog):
             )
         elif goal != 0 and now == goal:
             await channel.send("We did it, we reached the goal! :tada:")
-            await channel.edit(topic=f"Goal reached! :tada:")
+            await channel.edit(topic='Goal reached! :tada:')
         else:
             await channel.edit(topic=f"Let's count! | Next message must be {n}!")
