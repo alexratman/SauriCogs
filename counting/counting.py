@@ -1,14 +1,11 @@
-import asyncio
 import discord
 import typing
 import datetime
-import re
 from discord.utils import find
 from discord.ext import commands
 from redbot.core import Config, checks, commands
 from redbot.core.bot import Red
 
-decimal_system = re.compile('^[0-9]+$')
 
 class Counting(commands.Cog):
     """
@@ -28,10 +25,8 @@ class Counting(commands.Cog):
             previous=0,
             goal=0,
             last=0,
-            whitelist=None,
             warning=False,
-            seconds=0,
-            topic=True,
+            seconds=0
         )
 
     async def red_delete_data_for_user(self, *, requester, user_id):
@@ -61,9 +56,6 @@ class Counting(commands.Cog):
             await self.config.guild(ctx.guild).channel.set(0)
             return await ctx.send("Channel removed.")
         await self.config.guild(ctx.guild).channel.set(channel.id)
-        goal = await self.config.guild(ctx.guild).goal()
-        if await self.config.guild(ctx.guild).topic():
-            await self._set_topic(0, goal, 1, channel)
         await ctx.send(f"{channel.name} has been set for counting.")
 
     @countset.command(name="goal")
@@ -117,18 +109,6 @@ class Counting(commands.Cog):
         if await self.config.guild(ctx.guild).topic():
             await self._set_topic(0, goal, 1, c)
 
-    @countset.command(name="role")
-    async def countset_role(
-        self, ctx: commands.Context, role: typing.Optional[discord.Role]
-    ):
-        """Add a whitelisted role."""
-        if not role:
-            await self.config.guild(ctx.guild).whitelist.clear()
-            await ctx.send('Whitelisted role has been deleted.')
-        else:
-            await self.config.guild(ctx.guild).whitelist.set(role.id)
-            await ctx.send(f"{role.name} has been whitelisted.")
-
     @countset.command(name="warnmsg")
     async def countset_warnmsg(
         self,
@@ -154,20 +134,6 @@ class Counting(commands.Cog):
         else:
             await ctx.send("Warning messages are now disabled.")
 
-    @countset.command(name="topic")
-    async def countset_topic(
-        self, ctx: commands.Context, on_off: typing.Optional[bool]
-    ):
-        """Toggle counting channel's topic changing.
-
-        If `on_off` is not provided, the state will be flipped.="""
-        target_state = on_off or not (await self.config.guild(ctx.guild).topic())
-        await self.config.guild(ctx.guild).topic.set(target_state)
-        if target_state:
-            await ctx.send("Updating the channel's topic is now enabled.")
-        else:
-            await ctx.send("Updating the channel's topic is now disabled.")
-
     @countset.command(name="settings")
     async def countset_settings(self, ctx: commands.Context):
         """See current settings."""
@@ -176,9 +142,6 @@ class Counting(commands.Cog):
         channel = channel.mention if channel else "None"
 
         goal = "None" if data["goal"] == 0 else str(data["goal"])
-
-        role = ctx.guild.get_role(data["whitelist"])
-        role = role.name if role else "None"
 
         warn = "Disabled" if data["warning"] else f"Enabled ({data['seconds']} s)"
 
@@ -190,11 +153,9 @@ class Counting(commands.Cog):
         embed.set_footer(text="*required to function properly")
 
         embed.add_field(name="Channel*:", value=channel)
-        embed.add_field(name="Whitelisted role:", value=role)
         embed.add_field(name="Warning message:", value=warn)
         embed.add_field(name="Next number:", value=str(data["previous"] + 1))
         embed.add_field(name="Goal:", value=goal)
-        embed.add_field(name="Topic changing:", value=str(data["topic"]))
 
         await ctx.send(embed=embed)
 
@@ -212,7 +173,7 @@ class Counting(commands.Cog):
         seconds = await self.config.guild(message.guild).seconds()
         if message.author.id != last_id:
             try:
-                if re.search('^[0-9]+$', message.content):
+                if message.content.isdigit():
                     now = int(message.content)
                     if now - 1 == previous:
                         await self.config.guild(message.guild).previous.set(now)
@@ -223,21 +184,10 @@ class Counting(commands.Cog):
                         return
             except (TypeError, ValueError):
                 pass
-        rid = await self.config.guild(message.guild).whitelist()
-        if rid:
-            role = message.guild.get_role(int(rid))
-            if role and role in message.author.roles:
-                return
-        if warning:
-            if message.author.id != last_id:
-                warn_msg = await message.channel.send(
-                    f"The next message in this channel must be {next_number}"
-                )
-            else:
-                warn_msg = await message.channel.send('You cannot count twice in a row.')
-            if seconds != 0:
-                await asyncio.sleep(seconds)
-                await warn_msg.delete()
+            if warning and message.author.id != last_id:
+                await message.channel.send(f"The next message in this channel must be {next_number}", delete_after=seconds)
+        else:
+            await message.channel.send('You cannot count twice in a row.', delete_after=seconds)
         try:
             await message.delete()
         except (discord.Forbidden, discord.NotFound):
@@ -266,14 +216,3 @@ class Counting(commands.Cog):
                     await message.channel.send(deleted)
         except (TypeError, ValueError):
             return
-
-    async def _set_topic(self, now, goal, n, channel):
-        if goal != 0 and now < goal:
-            await channel.edit(
-                topic=f"Let's count! | Next message must be {n}! | Goal is {goal}!"
-            )
-        elif goal != 0 and now == goal:
-            await channel.send("We did it, we reached the goal! :tada:")
-            await channel.edit(topic='Goal reached! :tada:')
-        else:
-            await channel.edit(topic=f"Let's count! | Next message must be {n}!")
