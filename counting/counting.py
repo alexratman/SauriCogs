@@ -174,14 +174,15 @@ class Counting(commands.Cog):
         seconds = await self.config.guild(message.guild).seconds()
         if message.author.id != last_id:
             try:
-                now = int(''.join(c for c in message.content if c in digits and message.content.isdigit()))
-                if now - 1 == previous:
-                    await self.config.guild(message.guild).previous.set(now)
-                    await self.config.guild(message.guild).last.set(message.author.id)
-                    n = now + 1
-                    if await self.config.guild(message.guild).topic():
-                        return await self._set_topic(now, goal, n, message.channel)
-                    return
+                if message.content.isdigit():
+                    now = int(''.join(c for c in message.content if c in digits))
+                    if now - 1 == previous:
+                        await self.config.guild(message.guild).previous.set(now)
+                        await self.config.guild(message.guild).last.set(message.author.id)
+                        n = now + 1
+                        if await self.config.guild(message.guild).topic():
+                            return await self._set_topic(now, goal, n, message.channel)
+                        return
             except (TypeError, ValueError):
                 pass
             if warning and message.author.id != last_id:
