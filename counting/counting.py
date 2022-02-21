@@ -26,8 +26,7 @@ class Counting(commands.Cog):
             previous=0,
             goal=0,
             last=0,
-            warning=False,
-            seconds=0
+            warning=False
         )
 
     async def red_delete_data_for_user(self, *, requester, user_id):
@@ -80,10 +79,6 @@ class Counting(commands.Cog):
             )
         await self.config.guild(ctx.guild).previous.set(number)
         await self.config.guild(ctx.guild).last.clear()
-        goal = await self.config.guild(ctx.guild).goal()
-        next_number = number + 1
-        if await self.config.guild(ctx.guild).topic():
-            await self._set_topic(number, goal, next_number, channel)
         await channel.send(number)
         await ctx.send(f"Counting start set to {number}.")
 
@@ -106,34 +101,6 @@ class Counting(commands.Cog):
         await self.config.guild(ctx.guild).previous.clear()
         await self.config.guild(ctx.guild).last.clear()
         await c.send("Counting has been reset.")
-        goal = await self.config.guild(ctx.guild).goal()
-        if await self.config.guild(ctx.guild).topic():
-            await self._set_topic(0, goal, 1, c)
-
-    @countset.command(name="warnmsg")
-    async def countset_warnmsg(
-        self,
-        ctx: commands.Context,
-        on_off: typing.Optional[bool],
-        seconds: typing.Optional[int],
-    ):
-        """Toggle a warning message.
-
-        If `on_off` is not provided, the state will be flipped.
-        Optionally add how many seconds the bot should wait before deleting the message (0 for not deleting)."""
-        target_state = on_off or not (await self.config.guild(ctx.guild).warning())
-        await self.config.guild(ctx.guild).warning.set(target_state)
-        if target_state:
-            if not seconds or seconds < 0:
-                seconds = 0
-                await ctx.send("Warning messages are now enabled.")
-            else:
-                await ctx.send(
-                    f"Warning messages are now enabled, will be deleted after {seconds} seconds."
-                )
-            await self.config.guild(ctx.guild).seconds.set(seconds)
-        else:
-            await ctx.send("Warning messages are now disabled.")
 
     @countset.command(name="settings")
     async def countset_settings(self, ctx: commands.Context):
@@ -144,8 +111,6 @@ class Counting(commands.Cog):
 
         goal = "None" if data["goal"] == 0 else str(data["goal"])
 
-        warn = "Disabled" if data["warning"] else f"Enabled ({data['seconds']} s)"
-
         embed = discord.Embed(
             colour=await ctx.embed_colour(), timestamp=datetime.datetime.now()
         )
@@ -154,7 +119,6 @@ class Counting(commands.Cog):
         embed.set_footer(text="*required to function properly")
 
         embed.add_field(name="Channel*:", value=channel)
-        embed.add_field(name="Warning message:", value=warn)
         embed.add_field(name="Next number:", value=str(data["previous"] + 1))
         embed.add_field(name="Goal:", value=goal)
 
@@ -168,10 +132,9 @@ class Counting(commands.Cog):
             return
         last_id = await self.config.guild(message.guild).last()
         previous = await self.config.guild(message.guild).previous()
-        next_number = previous + 1
         goal = await self.config.guild(message.guild).goal()
+        next_number = previous + 1
         warning = await self.config.guild(message.guild).warning()
-        seconds = await self.config.guild(message.guild).seconds()
         if message.author.id != last_id:
             try:
                 if message.content.isdigit():
@@ -179,16 +142,16 @@ class Counting(commands.Cog):
                     if now - 1 == previous:
                         await self.config.guild(message.guild).previous.set(now)
                         await self.config.guild(message.guild).last.set(message.author.id)
-                        n = now + 1
-                        if await self.config.guild(message.guild).topic():
-                            return await self._set_topic(now, goal, n, message.channel)
+                        if now == goal:
+                            await message.channel.send('Congratulations, you made it to the goal.')
+                            await message.channel.set_permissions(message.guild.default_role, read_messages=True, send_message=False)
                         return
             except (TypeError, ValueError):
                 pass
             if warning and message.author.id != last_id:
-                await message.channel.send(f"The next message in this channel must be {next_number}", delete_after=seconds)
+                await message.channel.send(f"The next message in this channel must be {next_number}", delete_after=2)
         else:
-            await message.channel.send('You cannot count twice in a row.', delete_after=seconds)
+            await message.channel.send('You cannot count twice in a row.', delete_after=2)
         try:
             await message.delete()
         except (discord.Forbidden, discord.NotFound):
