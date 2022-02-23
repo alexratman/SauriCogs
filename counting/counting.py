@@ -1,3 +1,4 @@
+from logging import exception
 import discord
 import typing
 import datetime
@@ -7,6 +8,10 @@ from redbot.core import Config, checks, commands
 from redbot.core.bot import Red
 from string import digits
 
+try:
+    from redbot.core.modlog import get_modlog_channel
+except RuntimeError:
+    pass
 
 class Counting(commands.Cog):
     """
@@ -28,6 +33,8 @@ class Counting(commands.Cog):
             last=0,
             warning=False
         )
+
+        self.deleted = []
 
     async def red_delete_data_for_user(self, *, requester, user_id):
         for guild in self.bot.guilds:
@@ -82,6 +89,17 @@ class Counting(commands.Cog):
         await channel.send(number)
         await ctx.send(f"Counting start set to {number}.")
 
+    @countset.command(name="previous")
+    async def countset_previous(self, ctx: commands.Context, number: int):
+        """Set the starting number."""
+        channel = ctx.guild.get_channel(await self.config.guild(ctx.guild).channel())
+        if not channel:
+            return await ctx.send(
+                f"Set the channel with `{ctx.clean_prefix}countset channel <channel>`, please."
+            )
+        await self.config.guild(ctx.guild).previous.set(number)
+        await ctx.send(f"Counting previous set to {number}.")
+
     @countset.command(name="reset")
     async def countset_reset(self, ctx: commands.Context, confirmation: bool = False):
         """Reset the counter and start from 0 again!"""
@@ -125,7 +143,7 @@ class Counting(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.Cog.listener()
-    async def on_message(self, message):
+    async def on_message(self, message: discord.Message):
         if not message.guild or message.author.id == self.bot.user.id:
             return
         if message.channel.id != await self.config.guild(message.guild).channel():
@@ -153,30 +171,38 @@ class Counting(commands.Cog):
         else:
             await message.channel.send('You cannot count twice in a row.', delete_after=2)
         try:
+            self.deleted.append(message.id)
             await message.delete()
         except (discord.Forbidden, discord.NotFound):
             pass
 
     @commands.Cog.listener()
-    async def on_message_delete(self, message):
-        if not message.guild:
+    async def on_message_delete(self, message: discord.Message):
+        if (
+                not message.guild or
+                message.channel.id != (await self.config.guild(message.guild).channel()) or
+                message.author.bot or
+                not message.channel.permissions_for(message.guild.me).send_messages
+        ):
             return
-        if message.channel.id != await self.config.guild(message.guild).channel():
-            return
+
+        #super simple way to avoid the bot catching it's own deletes. Nice idea from Obi-Wan3.
         try:
+            _ = int(message.content.strip().split()[0])
+            if message.id in self.deleted:
+                return self.deleted.remove(message.id)
+        except ValueError:
+            return
+
+        try:
+            role = message.guild.get_role("counting-blacklist")
+            await message.author.add_roles(role, reason="Deleted their count; obviously numerically challenged")
             deleted = int(message.content)
-            previous = await self.config.guild(message.guild).previous()
-            goal = await self.config.guild(message.guild).goal()
-            if deleted == previous:
-                s = str(deleted)
-                if goal == 0:
-                    msgs = await message.channel.history(limit=100).flatten()
-                else:
-                    msgs = await message.channel.history(limit=goal).flatten()
-                msg = find(lambda m: m.content == s, msgs)
-                if not msg:
-                    p = deleted - 1
-                    await self.config.guild(message.guild).previous.set(p)
-                    await message.channel.send(deleted)
+            previous = previous = await self.config.guild(message.guild).previous()
+            p = deleted - 1 if deleted == previous else previous
+            await self.config.guild(message.guild).previous.set(p)
+            p_str = str(p + 1)
+            await message.channel.send(f'Recent count was deleted by user, channel has been reset. Next number is {p_str}', delete_after=5)
         except (TypeError, ValueError):
             return
+
